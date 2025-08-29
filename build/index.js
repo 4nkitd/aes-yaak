@@ -3,9 +3,6 @@ var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
@@ -20,352 +17,404 @@ var __copyProps = (to, from, except, desc) => {
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// src/plugin.js
-var require_plugin = __commonJS({
-  "src/plugin.js"(exports2, module2) {
-    "use strict";
-    var VERSION = "0.2.1";
-    function getCrypto() {
-      if (typeof crypto !== "undefined" && crypto.subtle) {
-        return { web: true, subtle: crypto.subtle };
-      }
-      try {
-        const nodeCrypto = require("crypto");
-        return { web: false, node: nodeCrypto };
-      } catch (e) {
-        throw new Error("No crypto implementation available in this environment.");
-      }
-    }
-    var CRYPTO_IMPL = getCrypto();
-    function isHex(str) {
-      return /^[0-9a-fA-F]+$/.test(str);
-    }
-    function isBase64(str) {
-      return /^(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$/.test(
-        str
-      );
-    }
-    function normalizeBytes(input, label, expectedLength, encoding = "auto") {
-      if (input == null) throw new Error(`${label} is required`);
-      if (typeof input !== "string") {
-        throw new Error(`${label} must be a string`);
-      }
-      let raw = input.trim();
-      let bytes;
-      try {
-        if (encoding && encoding !== "auto") {
-          bytes = Buffer.from(raw, encoding);
-        } else {
-          if (expectedLength && raw.length === expectedLength * 2 && isHex(raw)) {
-            bytes = Buffer.from(raw, "hex");
-          } else if (isBase64(raw)) {
-            try {
-              bytes = Buffer.from(raw, "base64");
-            } catch {
-            }
-          }
-          if (!bytes) {
-            bytes = Buffer.from(raw, "utf8");
-          }
-        }
-      } catch (e) {
-        throw new Error(
-          `Failed to decode ${label} with encoding '${encoding}': ${e.message}`
-        );
-      }
-      if (expectedLength && bytes.length !== expectedLength) {
-        throw new Error(
-          `${label} must be exactly ${expectedLength} bytes after decoding (encoding: ${encoding}); got ${bytes.length}`
-        );
-      }
-      return bytes;
-    }
-    function coerceOptions(raw) {
-      if (raw == null) return raw;
-      if (typeof raw === "string") {
-        const trimmed = raw.trim();
-        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-          try {
-            return JSON.parse(trimmed);
-          } catch (e) {
-            throw new Error("options JSON parse error: " + e.message);
-          }
-        }
-        throw new Error(
-          "options provided as a string must be valid JSON starting with '{' or '['"
-        );
-      }
-      if (typeof raw !== "object") {
-        throw new Error("options must be an object or JSON string");
-      }
-      return raw;
-    }
-    function parseOptions(opts, forDecrypt) {
-      const o = Object.assign({}, opts || {});
-      const validEncodings = ["auto", "hex", "base64", "utf8"];
-      const validDataEncodings = ["hex", "base64", "utf8"];
-      o.mode = (o.mode || "CBC").toUpperCase();
-      if (!["CBC", "GCM", "CTR", "ECB"].includes(o.mode))
-        throw new Error("Unsupported mode " + o.mode);
-      o.padding = (o.padding || "PKCS7").toUpperCase();
-      if ((o.mode === "CBC" || o.mode === "ECB") && !["PKCS7", "NONE"].includes(o.padding)) {
-        throw new Error("Unsupported padding " + o.padding);
-      }
-      if (!(o.mode === "CBC" || o.mode === "ECB")) {
-        o.padding = "NONE";
-      }
-      o.keyEncoding = (o.keyEncoding || "auto").toLowerCase();
-      o.ivEncoding = (o.ivEncoding || "auto").toLowerCase();
-      if (!validEncodings.includes(o.keyEncoding))
-        throw new Error("Invalid keyEncoding");
-      if (!validEncodings.includes(o.ivEncoding))
-        throw new Error("Invalid ivEncoding");
-      if (!forDecrypt) {
-        o.output = (o.output || "base64").toLowerCase();
-        if (!["base64", "hex"].includes(o.output))
-          throw new Error("Invalid output format");
-        o.plaintextEncoding = (o.plaintextEncoding || "utf8").toLowerCase();
-        if (!validDataEncodings.includes(o.plaintextEncoding))
-          throw new Error("Invalid plaintextEncoding");
-      } else {
-        o.inputEncoding = (o.inputEncoding || "auto").toLowerCase();
-        if (!["auto", "base64", "hex"].includes(o.inputEncoding))
-          throw new Error("Invalid inputEncoding");
-        o.decryptedOutputEncoding = (o.decryptedOutputEncoding || "utf8").toLowerCase();
-        if (!validDataEncodings.includes(o.decryptedOutputEncoding))
-          throw new Error("Invalid decryptedOutputEncoding");
-      }
-      return o;
-    }
-    function nodeAlgorithm(mode) {
-      switch (mode) {
-        case "CBC":
-          return "aes-128-cbc";
-        case "GCM":
-          return "aes-128-gcm";
-        case "CTR":
-          return "aes-128-ctr";
-        case "ECB":
-          return "aes-128-ecb";
-      }
-      throw new Error("Unsupported mode " + mode);
-    }
-    function encodeOutput(buf, format) {
-      if (format === "hex") return buf.toString("hex");
-      if (format === "base64" || format == null) return buf.toString("base64");
-      throw new Error("Unsupported output format (expected 'hex' or 'base64')");
-    }
-    function decodeInput(str, encoding) {
-      if (encoding === "hex") return Buffer.from(str, "hex");
-      if (encoding === "base64") return Buffer.from(str, "base64");
-      try {
-        return Buffer.from(str, "base64");
-      } catch {
-      }
-      if (isHex(str)) return Buffer.from(str, "hex");
-      return Buffer.from(str, "utf8");
-    }
-    async function encryptAes128(plaintext, key, iv, rawOptions) {
-      const coerced = coerceOptions(rawOptions);
-      const opts = parseOptions(coerced, false);
-      const keyBytes = normalizeBytes(key, "key", 16, opts.keyEncoding);
-      const ivBytes = opts.mode === "ECB" ? null : normalizeBytes(iv, "iv", 16, opts.ivEncoding);
-      if (opts.mode !== "ECB" && !ivBytes) {
-        throw new Error("iv required for mode " + opts.mode);
-      }
-      if (plaintext == null) throw new Error("plaintext required");
-      const ptBuf = normalizeBytes(
-        String(plaintext),
-        "plaintext",
-        null,
-        opts.plaintextEncoding
-      );
-      if (!CRYPTO_IMPL.web) {
-        const algo = nodeAlgorithm(opts.mode);
-        const cipher = CRYPTO_IMPL.node.createCipheriv(
-          algo,
-          keyBytes,
-          opts.mode === "ECB" ? null : ivBytes,
-          { authTagLength: opts.mode === "GCM" ? 16 : void 0 }
-        );
-        if ((opts.mode === "CBC" || opts.mode === "ECB") && opts.padding === "NONE") {
-          cipher.setAutoPadding(false);
-          const block = 16;
-          let padded = ptBuf;
-          if (ptBuf.length % block !== 0) {
-            const padLen = block - ptBuf.length % block;
-            padded = Buffer.concat([ptBuf, Buffer.alloc(padLen)]);
-          }
-          const out2 = Buffer.concat([cipher.update(padded), cipher.final()]);
-          return encodeOutput(out2, opts.output);
-        }
-        const out = Buffer.concat([cipher.update(ptBuf), cipher.final()]);
-        if (opts.mode === "GCM") {
-          const tag = cipher.getAuthTag();
-          const main = encodeOutput(out, opts.output);
-          const tagStr = encodeOutput(tag, opts.output);
-          return main + "." + tagStr;
-        }
-        return encodeOutput(out, opts.output);
-      } else {
-        if (opts.mode === "CTR")
-          throw new Error("CTR mode not supported in WebCrypto path");
-        if (opts.mode === "ECB")
-          throw new Error("ECB mode not supported in WebCrypto path");
-        const algo = {
-          name: opts.mode === "CBC" ? "AES-CBC" : "AES-GCM",
-          iv: ivBytes,
-          length: 128
-        };
-        const keyObj = await CRYPTO_IMPL.subtle.importKey(
-          "raw",
-          keyBytes,
-          algo.name,
-          false,
-          ["encrypt"]
-        );
-        const ctBuf = Buffer.from(
-          await CRYPTO_IMPL.subtle.encrypt(algo, keyObj, ptBuf)
-        );
-        if (opts.mode === "GCM") {
-          const tag = ctBuf.slice(ctBuf.length - 16);
-          const body = ctBuf.slice(0, ctBuf.length - 16);
-          return encodeOutput(body, opts.output) + "." + encodeOutput(tag, opts.output);
-        }
-        return encodeOutput(ctBuf, opts.output);
-      }
-    }
-    async function decryptAes128(ciphertext, key, iv, rawOptions) {
-      const coerced = coerceOptions(rawOptions);
-      const opts = parseOptions(coerced, true);
-      const keyBytes = normalizeBytes(key, "key", 16, opts.keyEncoding);
-      const ivBytes = opts.mode === "ECB" ? null : normalizeBytes(iv, "iv", 16, opts.ivEncoding);
-      if (opts.mode !== "ECB" && !ivBytes) {
-        throw new Error("iv required for mode " + opts.mode);
-      }
-      if (ciphertext == null) throw new Error("ciphertext required");
-      let ctStr = String(ciphertext).trim();
-      let tagBuf = null;
-      if (opts.mode === "GCM") {
-        if (opts.tag) {
-          tagBuf = decodeInput(
-            opts.tag,
-            opts.inputEncoding === "auto" ? "base64" : opts.inputEncoding
-          );
-        } else {
-          const parts = ctStr.split(/[.:]/);
-          if (parts.length < 2)
-            throw new Error(
-              "GCM ciphertext must include auth tag separated by . or : or specify options.tag"
-            );
-          ctStr = parts.slice(0, -1).join(".");
-          tagBuf = decodeInput(parts[parts.length - 1], "auto");
-        }
-        if (tagBuf.length !== 16) throw new Error("GCM auth tag must be 16 bytes");
-      }
-      const ctBuf = decodeInput(ctStr, opts.inputEncoding);
-      if (!CRYPTO_IMPL.web) {
-        const algo = nodeAlgorithm(opts.mode);
-        const decipher = CRYPTO_IMPL.node.createDecipheriv(
-          algo,
-          keyBytes,
-          opts.mode === "ECB" ? null : ivBytes,
-          { authTagLength: opts.mode === "GCM" ? 16 : void 0 }
-        );
-        if (opts.mode === "GCM") {
-          decipher.setAuthTag(tagBuf);
-        }
-        if ((opts.mode === "CBC" || opts.mode === "ECB") && opts.padding === "NONE") {
-          decipher.setAutoPadding(false);
-          const out2 = Buffer.concat([decipher.update(ctBuf), decipher.final()]);
-          const result = out2.toString("utf8").replace(/\x00+$/, "");
-          return encodeOutput(
-            Buffer.from(result, "utf8"),
-            opts.decryptedOutputEncoding
-          );
-        }
-        const out = Buffer.concat([decipher.update(ctBuf), decipher.final()]);
-        return encodeOutput(out, opts.decryptedOutputEncoding);
-      } else {
-        if (opts.mode === "CTR")
-          throw new Error("CTR mode not supported in WebCrypto path");
-        if (opts.mode === "ECB")
-          throw new Error("ECB mode not supported in WebCrypto path");
-        let algoName = opts.mode === "CBC" ? "AES-CBC" : "AES-GCM";
-        let data = ctBuf;
-        if (opts.mode === "GCM") {
-          data = Buffer.concat([ctBuf, tagBuf]);
-        }
-        const keyObj = await CRYPTO_IMPL.subtle.importKey(
-          "raw",
-          keyBytes,
-          algoName,
-          false,
-          ["decrypt"]
-        );
-        const ptBuf = Buffer.from(
-          await CRYPTO_IMPL.subtle.decrypt(
-            { name: algoName, iv: ivBytes },
-            keyObj,
-            data
-          )
-        );
-        return encodeOutput(ptBuf, opts.decryptedOutputEncoding);
-      }
-    }
-    function makeTemplate(fn, name, description) {
-      return {
-        name,
-        description,
-        args: ["text", "key", "iv", "options"],
-        async run(context, ...args) {
-          try {
-            return await fn(...args);
-          } catch (e) {
-            return "[aes-error] " + e.message;
-          }
-        }
-      };
-    }
-    var plugin2 = {
-      name: "AES-128 Tools",
-      version: VERSION,
-      description: "Adds AES-128 encryptAes128 / decryptAes128 template helpers supporting CBC, GCM, CTR, ECB.",
-      templates: [
-        makeTemplate(
-          encryptAes128,
-          "encryptAes128",
-          "Encrypt plaintext with AES-128 (CBC/GCM/CTR/ECB)."
-        ),
-        makeTemplate(
-          decryptAes128,
-          "decryptAes128",
-          "Decrypt ciphertext with AES-128 (CBC/GCM/CTR/ECB)."
-        )
-      ]
-    };
-    module2.exports = plugin2;
-    module2.exports.templateFunctions = plugin2.templates;
-    if (typeof process !== "undefined" && process.env && process.env.YAAK_AES_DEBUG) {
-      try {
-        const names = (plugin2.templates || []).map((t) => t.name).join(", ");
-        console.log("[yaak-aes-plugin] Loaded templates:", names);
-      } catch (_) {
-      }
-    }
-    module2.exports.default = plugin2;
-  }
-});
-
 // src/index.ts
 var src_exports = {};
 __export(src_exports, {
   default: () => src_default,
-  plugin: () => plugin
+  plugin: () => plugin2
 });
 module.exports = __toCommonJS(src_exports);
-var aesCjsPlugin = require_plugin();
-var aesTemplates = aesCjsPlugin?.templates || [];
+
+// src/aesPlugin.ts
+var VERSION = "0.4.0-ts";
+var isBase64 = (s) => /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(s);
+var isHex = (s) => /^[0-9a-fA-F]+$/.test(s);
+function coerceOptions(raw) {
+  if (raw == null) return {};
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (t.startsWith("{") || t.startsWith("[")) {
+      try {
+        return JSON.parse(t);
+      } catch (e) {
+        throw new Error("options JSON parse error: " + e.message);
+      }
+    }
+    throw new Error("options string must be JSON (start with { or [)");
+  }
+  if (typeof raw !== "object") throw new Error("options must be object/JSON");
+  return raw;
+}
+function parseOptions(raw, forDecrypt) {
+  const o = coerceOptions(raw);
+  const mode = (o.mode || "CBC").toUpperCase();
+  if (!["CBC", "GCM", "CTR", "ECB"].includes(mode))
+    throw new Error("Unsupported mode " + mode);
+  let padding = (o.padding || "PKCS7").toUpperCase();
+  if ((mode === "CBC" || mode === "ECB") && !["PKCS7", "NONE"].includes(padding))
+    throw new Error("Unsupported padding " + padding);
+  if (!(mode === "CBC" || mode === "ECB")) {
+    padding = "NONE";
+  }
+  let keySize;
+  if (o.keySize != null) {
+    const n = typeof o.keySize === "string" ? parseInt(o.keySize, 10) : o.keySize;
+    if (n !== 128 && n !== 256) throw new Error("keySize must be 128 or 256");
+    keySize = n;
+  }
+  const keyEncoding = (o.keyEncoding || "auto").toLowerCase();
+  const ivEncoding = (o.ivEncoding || "auto").toLowerCase();
+  ["keyEncoding", "ivEncoding"].forEach((k) => {
+    const v = k === "keyEncoding" ? keyEncoding : ivEncoding;
+    if (!["auto", "hex", "base64", "utf8"].includes(v))
+      throw new Error(`Invalid ${k}`);
+  });
+  let plaintextEncoding = (o.plaintextEncoding || "utf8").toLowerCase();
+  if (!["utf8", "hex", "base64"].includes(plaintextEncoding))
+    throw new Error("Invalid plaintextEncoding");
+  let inputEncoding = (o.inputEncoding || "auto").toLowerCase();
+  if (!["auto", "hex", "base64"].includes(inputEncoding))
+    throw new Error("Invalid inputEncoding");
+  let decryptedOutputEncoding = (o.decryptedOutputEncoding || "utf8").toLowerCase();
+  if (!["utf8", "hex", "base64"].includes(decryptedOutputEncoding))
+    throw new Error("Invalid decryptedOutputEncoding");
+  let output = (o.output || "base64").toLowerCase();
+  if (!["base64", "hex"].includes(output))
+    throw new Error("Invalid output (expected base64|hex)");
+  let backend = (o.backend || "auto").toLowerCase();
+  if (!["auto", "node", "web"].includes(backend))
+    throw new Error("Invalid backend (auto|node|web)");
+  return {
+    mode,
+    padding,
+    keySize,
+    keyEncoding,
+    ivEncoding,
+    plaintextEncoding,
+    inputEncoding,
+    decryptedOutputEncoding,
+    output,
+    tag: o.tag,
+    backend,
+    forDecrypt
+  };
+}
+function decodeWithEncoding(value, encoding, acceptableLengths) {
+  if (value == null) throw new Error("value required");
+  if (typeof value !== "string") throw new Error("value must be string");
+  const trimmed = value.trim();
+  let buf;
+  try {
+    if (encoding !== "auto") {
+      buf = Buffer.from(trimmed, encoding === "utf8" ? "utf8" : encoding);
+    } else {
+      if (acceptableLengths && acceptableLengths.some(
+        (l) => trimmed.length === l * 2 && isHex(trimmed)
+      )) {
+        buf = Buffer.from(trimmed, "hex");
+      } else if (isBase64(trimmed)) {
+        try {
+          buf = Buffer.from(trimmed, "base64");
+        } catch {
+        }
+      }
+      if (!buf) buf = Buffer.from(trimmed, "utf8");
+    }
+  } catch (e) {
+    throw new Error(
+      `decode error (${encoding}): ${e.message || String(e)}`
+    );
+  }
+  if (acceptableLengths && acceptableLengths.length) {
+    if (!acceptableLengths.includes(buf.length)) {
+      throw new Error(
+        `decoded length ${buf.length} not in [${acceptableLengths.join(" or ")}]`
+      );
+    }
+  }
+  return buf;
+}
+function normalizeKey(key, encoding, keySize) {
+  const keyBytes = decodeWithEncoding(key, encoding, [16, 32]);
+  const bits = keyBytes.length === 32 ? 256 : 128;
+  if (keySize && keySize !== bits)
+    throw new Error(
+      `key size mismatch: key is ${bits}-bit but keySize=${keySize}`
+    );
+  return { keyBytes, keyBits: bits };
+}
+function normalizeIv(iv, encoding, mode) {
+  if (mode === "ECB") return null;
+  return decodeWithEncoding(iv, encoding, [16]);
+}
+function encodeBuffer(buf, format) {
+  return buf.toString(format);
+}
+function encodePlainOutput(buf, encoding) {
+  if (encoding === "utf8") return buf.toString("utf8");
+  if (encoding === "hex") return buf.toString("hex");
+  return buf.toString("base64");
+}
+function decodeCipherInput(str, encoding) {
+  if (encoding === "hex") return Buffer.from(str, "hex");
+  if (encoding === "base64") return Buffer.from(str, "base64");
+  if (isBase64(str)) {
+    try {
+      return Buffer.from(str, "base64");
+    } catch {
+    }
+  }
+  if (isHex(str)) return Buffer.from(str, "hex");
+  return Buffer.from(str, "utf8");
+}
+function detectBackends() {
+  const b = {};
+  if (typeof crypto !== "undefined" && crypto.subtle) b.subtle = crypto.subtle;
+  try {
+    b.node = require("crypto");
+  } catch {
+  }
+  return b;
+}
+var BACKENDS = detectBackends();
+function selectBackend(opts, mode) {
+  if (opts.backend === "node") {
+    if (!BACKENDS.node) throw new Error("Node backend requested but unavailable");
+    return { type: "node" };
+  }
+  if (opts.backend === "web") {
+    if (!BACKENDS.subtle)
+      throw new Error("Web backend requested but unavailable");
+    if (mode === "CTR" || mode === "ECB")
+      throw new Error(mode + " unsupported in WebCrypto backend");
+    return { type: "web" };
+  }
+  if (BACKENDS.node) return { type: "node" };
+  if (mode === "CTR" || mode === "ECB")
+    throw new Error(mode + " requires Node backend (unavailable)");
+  if (BACKENDS.subtle) return { type: "web" };
+  throw new Error("No cryptographic backend available");
+}
+function nodeAlgorithm(mode, bits) {
+  return `aes-${bits}-${mode.toLowerCase()}`;
+}
+async function encryptCore(plaintext, key, iv, rawOptions) {
+  const opts = parseOptions(rawOptions, false);
+  if (plaintext == null) throw new Error("plaintext required");
+  const { keyBytes, keyBits } = normalizeKey(
+    key,
+    opts.keyEncoding,
+    opts.keySize
+  );
+  const ivBytes = normalizeIv(iv, opts.ivEncoding, opts.mode);
+  if (opts.mode !== "ECB" && !ivBytes)
+    throw new Error("iv required for mode " + opts.mode);
+  const ptBuf = decodeWithEncoding(plaintext, opts.plaintextEncoding);
+  const backend = selectBackend(opts, opts.mode);
+  if (backend.type === "node") {
+    const crypto2 = BACKENDS.node;
+    const algo = nodeAlgorithm(opts.mode, keyBits);
+    const cipher = crypto2.createCipheriv(
+      algo,
+      keyBytes,
+      opts.mode === "ECB" ? null : ivBytes,
+      { authTagLength: opts.mode === "GCM" ? 16 : void 0 }
+    );
+    if ((opts.mode === "CBC" || opts.mode === "ECB") && opts.padding === "NONE") {
+      cipher.setAutoPadding(false);
+      const block = 16;
+      let padded = ptBuf;
+      if (ptBuf.length % block !== 0) {
+        padded = Buffer.concat([
+          ptBuf,
+          Buffer.alloc(block - ptBuf.length % block)
+        ]);
+      }
+      const out2 = Buffer.concat([cipher.update(padded), cipher.final()]);
+      return encodeBuffer(out2, opts.output);
+    }
+    const out = Buffer.concat([cipher.update(ptBuf), cipher.final()]);
+    if (opts.mode === "GCM") {
+      const tag = cipher.getAuthTag();
+      return encodeBuffer(out, opts.output) + "." + encodeBuffer(tag, opts.output);
+    }
+    return encodeBuffer(out, opts.output);
+  }
+  if (opts.mode === "CTR" || opts.mode === "ECB")
+    throw new Error(opts.mode + " unsupported in WebCrypto path");
+  const subtle = BACKENDS.subtle;
+  const algoName = opts.mode === "CBC" ? "AES-CBC" : "AES-GCM";
+  const keyObj = await subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: algoName, length: keyBits },
+    false,
+    ["encrypt"]
+  );
+  const params = opts.mode === "CBC" ? { name: "AES-CBC", iv: ivBytes } : { name: "AES-GCM", iv: ivBytes };
+  const encrypted = Buffer.from(await subtle.encrypt(params, keyObj, ptBuf));
+  if (opts.mode === "GCM") {
+    const tag = encrypted.slice(encrypted.length - 16);
+    const body = encrypted.slice(0, encrypted.length - 16);
+    return encodeBuffer(body, opts.output) + "." + encodeBuffer(tag, opts.output);
+  }
+  return encodeBuffer(encrypted, opts.output);
+}
+async function decryptCore(ciphertext, key, iv, rawOptions) {
+  const opts = parseOptions(rawOptions, true);
+  const { keyBytes, keyBits } = normalizeKey(
+    key,
+    opts.keyEncoding,
+    opts.keySize
+  );
+  const ivBytes = normalizeIv(iv, opts.ivEncoding, opts.mode);
+  if (opts.mode !== "ECB" && !ivBytes)
+    throw new Error("iv required for mode " + opts.mode);
+  if (ciphertext == null) throw new Error("ciphertext required");
+  let ct = ciphertext.trim();
+  let tagBuf = null;
+  if (opts.mode === "GCM") {
+    if (opts.tag) {
+      tagBuf = decodeCipherInput(
+        opts.tag,
+        opts.inputEncoding === "auto" ? "base64" : opts.inputEncoding
+      );
+    } else {
+      const parts = ct.split(/[.:]/);
+      if (parts.length < 2)
+        throw new Error(
+          "GCM ciphertext must include auth tag (. or :) or specify options.tag"
+        );
+      ct = parts.slice(0, -1).join(".");
+      tagBuf = decodeCipherInput(parts[parts.length - 1], "auto");
+    }
+    if (tagBuf.length !== 16) throw new Error("GCM auth tag must be 16 bytes");
+  }
+  const ctBuf = decodeCipherInput(ct, opts.inputEncoding);
+  const backend = selectBackend(opts, opts.mode);
+  if (backend.type === "node") {
+    const crypto2 = BACKENDS.node;
+    const algo = nodeAlgorithm(opts.mode, keyBits);
+    const decipher = crypto2.createDecipheriv(
+      algo,
+      keyBytes,
+      opts.mode === "ECB" ? null : ivBytes,
+      { authTagLength: opts.mode === "GCM" ? 16 : void 0 }
+    );
+    if (opts.mode === "GCM") decipher.setAuthTag(tagBuf);
+    if ((opts.mode === "CBC" || opts.mode === "ECB") && opts.padding === "NONE") {
+      decipher.setAutoPadding(false);
+      const out2 = Buffer.concat([decipher.update(ctBuf), decipher.final()]);
+      const unpadded = out2.toString("utf8").replace(/\x00+$/, "");
+      return encodePlainOutput(
+        Buffer.from(unpadded, "utf8"),
+        opts.decryptedOutputEncoding
+      );
+    }
+    const out = Buffer.concat([decipher.update(ctBuf), decipher.final()]);
+    return encodePlainOutput(out, opts.decryptedOutputEncoding);
+  }
+  if (opts.mode === "CTR" || opts.mode === "ECB")
+    throw new Error(opts.mode + " unsupported in WebCrypto path");
+  const subtle = BACKENDS.subtle;
+  const algoName = opts.mode === "CBC" ? "AES-CBC" : "AES-GCM";
+  const keyObj = await subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: algoName, length: keyBits },
+    false,
+    ["decrypt"]
+  );
+  let data = ctBuf;
+  if (opts.mode === "GCM") {
+    data = Buffer.concat([ctBuf, tagBuf]);
+  }
+  const params = opts.mode === "CBC" ? { name: "AES-CBC", iv: ivBytes } : { name: "AES-GCM", iv: ivBytes };
+  const ptBuf = Buffer.from(await subtle.decrypt(params, keyObj, data));
+  return encodePlainOutput(ptBuf, opts.decryptedOutputEncoding);
+}
+function makeTemplate(fn, name, description) {
+  return {
+    name,
+    description,
+    args: ["text", "key", "iv", "options"],
+    async run(_ctx, ...args) {
+      try {
+        return await fn(...args);
+      } catch (e) {
+        return "[aes-error] " + (e?.message || String(e));
+      }
+    }
+  };
+}
+async function encryptAes(plaintext, key, iv, options) {
+  return encryptCore(plaintext, key, iv, options);
+}
+async function decryptAes(ciphertext, key, iv, options) {
+  return decryptCore(ciphertext, key, iv, options);
+}
+async function encryptAes128(plaintext, key, iv, options) {
+  return encryptCore(plaintext, key, iv, options);
+}
+async function decryptAes128(ciphertext, key, iv, options) {
+  return decryptCore(ciphertext, key, iv, options);
+}
+var plugin = {
+  name: "AES Tools (128/256) TS",
+  version: VERSION,
+  description: "AES encryption/decryption helpers supporting AES-128 & AES-256 (CBC/GCM/CTR/ECB).",
+  templates: [
+    makeTemplate(
+      encryptAes,
+      "encryptAes",
+      "Encrypt (AES-128/256 auto; modes CBC/GCM/CTR/ECB)."
+    ),
+    makeTemplate(
+      decryptAes,
+      "decryptAes",
+      "Decrypt (AES-128/256 auto; modes CBC/GCM/CTR/ECB)."
+    ),
+    makeTemplate(
+      encryptAes128,
+      "encryptAes128",
+      "Encrypt (legacy alias \u2013 key length decides 128 vs 256)."
+    ),
+    makeTemplate(
+      decryptAes128,
+      "decryptAes128",
+      "Decrypt (legacy alias \u2013 key length decides 128 vs 256)."
+    )
+  ]
+};
+plugin.templateFunctions = plugin.templates;
+var aesPlugin_default = plugin;
+try {
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = plugin;
+    module.exports.default = plugin;
+    module.exports.templateFunctions = plugin.templates;
+  }
+} catch {
+}
+try {
+  if (typeof process !== "undefined" && process?.env?.YAAK_AES_DEBUG) {
+    const names = plugin.templates.map((t) => t.name).join(", ");
+    console.log(
+      "[yaak-aes-plugin-ts]",
+      VERSION,
+      "templates:",
+      names,
+      "nodeBackend=",
+      !!BACKENDS.node,
+      "webBackend=",
+      !!BACKENDS.subtle
+    );
+  }
+} catch {
+}
+
+// src/index.ts
+var aesTemplates = aesPlugin_default?.templates || [];
 var templateFunctions = aesTemplates.map((t) => ({
   name: t.name,
   description: t.description,
@@ -382,7 +431,7 @@ var templateFunctions = aesTemplates.map((t) => ({
     return await t.run(ctx, ...ordered);
   }
 }));
-var plugin = {
+var plugin2 = {
   httpRequestActions: [
     {
       label: "Hello, From Plugin",
@@ -408,12 +457,12 @@ var plugin = {
   ],
   templateFunctions
 };
-var src_default = plugin;
+var src_default = plugin2;
 if (typeof module !== "undefined") {
-  module.exports = plugin;
-  module.exports.plugin = plugin;
-  module.exports.templateFunctions = plugin.templateFunctions;
-  module.exports.default = plugin;
+  module.exports = plugin2;
+  module.exports.plugin = plugin2;
+  module.exports.templateFunctions = plugin2.templateFunctions;
+  module.exports.default = plugin2;
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

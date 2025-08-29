@@ -1,22 +1,14 @@
 import { PluginDefinition } from "@yaakapp/api";
 
 /**
- * Bridge the CommonJS AES plugin (src/plugin.js) into the TypeScript
- * plugin entry point so that Yaak can discover the template functions
- * alongside any other actions defined here.
+ * Bridge the TypeScript AES plugin (src/aesPlugin.ts) into Yaak's plugin entry point.
  *
- * The existing JS module exports:
- *   { templates: [{ name, description, args, run(context, ...args) }, ...] }
+ * We import the TS module directly and adapt its `templates` array into Yaak's
+ * `templateFunctions` shape (adds lightweight arg metadata + onRender wrapper).
  *
- * We adapt each entry to Yaak's TemplateFunctionPlugin shape:
- *   { name, description, args: FormInput[], onRender(ctx, callArgs) }
- *
- * NOTE:
- * - Args metadata is generated generically from the original string arg names.
- * - All args are treated as simple string inputs; advanced typing/validation
- *   could be added later if needed.
+ * This replaces the previous CommonJS bridge that required ./plugin.js.
  */
-const aesCjsPlugin = require("./plugin.js"); // CommonJS export
+import aesTsPlugin from "./aesPlugin";
 
 type AnyTemplate = {
   name: string;
@@ -25,7 +17,7 @@ type AnyTemplate = {
   run: (ctx: any, ...args: any[]) => Promise<string> | string;
 };
 
-const aesTemplates: AnyTemplate[] = (aesCjsPlugin?.templates ||
+const aesTemplates: AnyTemplate[] = (aesTsPlugin?.templates ||
   []) as AnyTemplate[];
 
 const templateFunctions = aesTemplates.map((t) => ({
