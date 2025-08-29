@@ -433,16 +433,16 @@ var templateFunctions = aesTemplates.map((t) => ({
 }));
 var plugin2 = {
   httpRequestActions: [
-    {
-      label: "Hello, From Plugin",
-      icon: "info",
-      async onSelect(ctx, args) {
-        await ctx.toast.show({
-          color: "success",
-          message: `You clicked the request ${args.httpRequest.id}`
-        });
-      }
-    },
+    // {
+    //   label: "Hello, From Plugin",
+    //   icon: "info",
+    //   async onSelect(ctx, args) {
+    //     await ctx.toast.show({
+    //       color: "success",
+    //       message: `You clicked the request ${args.httpRequest.id}`,
+    //     });
+    //   },
+    // },
     {
       label: "List AES Templates",
       icon: "info",
