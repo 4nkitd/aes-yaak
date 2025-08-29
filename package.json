@@ -1,5 +1,9 @@
 {
   "name": "aes-yaak",
+  "displayName": "AES",
+  "description": "AES encryption and decryption module for Yaak",
+  "repository": "https://github.com/4nkitd/aes-yaak",
+  "homepage": "https://github.com/4nkitd/aes-yaak",
   "private": true,
   "version": "0.0.1",
   "scripts": {
