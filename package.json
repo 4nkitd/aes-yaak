@@ -1,5 +1,5 @@
 {
-  "name": "@4nkitd/aes",
+  "name": "@yaakapp/aes",
   "displayName": "AES",
   "description": "AES encryption and decryption module for Yaak",
   "repository": "https://github.com/4nkitd/aes-yaak",
